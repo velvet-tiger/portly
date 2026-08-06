@@ -1,0 +1,44 @@
+name: release
+
+# Releases are cut by pushing a tag. Nothing publishes on an ordinary push, so
+# a merge to main cannot ship a release by accident.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # macOS, because the release runs `go test ./...` as a before-hook and
+    # portly's scan tests exercise the Darwin socket reader. On Linux the
+    # build-tagged stub compiles instead and the suite would not test what ships.
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          # GoReleaser builds the changelog from commit history and derives the
+          # version from the tag, so a shallow clone is not enough.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          # Provided by Actions. Creates the release on this repository.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A separate token, because GITHUB_TOKEN cannot write to another
+          # repository. Needs contents:write on velvet-tiger/homebrew-tap only.
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

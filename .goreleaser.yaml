@@ -1,0 +1,107 @@
+# Release configuration for portly.
+#
+# The build matrix is macOS only, deliberately. portly compiles for Linux and
+# Windows, but those binaries exit with "portly has no socket reader for <os>"
+# because only the Darwin socket reader is implemented. Publishing them would
+# hand people a download that fails on first run. When a Linux reader lands, add
+# linux here and to the cask's dependency line in the same change.
+version: 2
+
+project_name: portly
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: portly
+    main: .
+    binary: portly
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      # -s -w drop the symbol table and DWARF data. The two -X flags set the
+      # variables in main that `portly --version` reports.
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .FullCommit }}
+
+archives:
+  - id: portly
+    ids:
+      - portly
+    formats:
+      - tar.gz
+    name_template: "portly_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+# A cask rather than a formula because portly ships a prebuilt binary. A formula
+# would either need Homebrew to compile from source, which pulls an entire Go
+# toolchain onto every user's machine, or would be a formula shipping a binary,
+# which is what casks exist for.
+homebrew_casks:
+  - name: portly
+    binaries:
+      - portly
+    repository:
+      owner: velvet-tiger
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Casks
+    homepage: https://github.com/velvet-tiger/portly
+    description: Finds the development servers running on your machine
+    license: MIT
+    commit_author:
+      name: goreleaser
+      email: noreply@github.com
+    commit_msg_template: "chore(cask): portly {{ .Tag }}"
+    hooks:
+      post:
+        # A binary downloaded by Homebrew carries no quarantine attribute, but
+        # one fetched through a browser does, and Gatekeeper then refuses to run
+        # it. Clearing it here keeps both routes working without code signing.
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/portly"]
+          end
+
+release:
+  github:
+    owner: velvet-tiger
+    name: portly
+  draft: false
+  prerelease: auto
+  footer: |
+    ## Install
+
+    ```bash
+    brew install velvet-tiger/tap/portly
+    ```
+
+    Or, with Go installed:
+
+    ```bash
+    go install github.com/velvet-tiger/portly@{{ .Tag }}
+    ```

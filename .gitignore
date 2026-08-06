@@ -1,0 +1,37 @@
+# GoReleaser build output.
+dist/
+
+# Binaries from a local `go build -o portly .`
+/portly
+
+# Compiled test binaries from `go test -c`.
+*.test
+
+# Coverage dumps from `go test -cover` and `go tool cover -html`.
+coverage.out
+coverage.html
+
+# A go.work pointing at local module checkouts is per-developer. Committing one
+# redirects every other build, CI included, at paths that exist on one machine.
+go.work
+go.work.sum
+
+# macOS and JetBrains noise. Ignored here rather than only in a personal global
+# ignore file, because contributors to a public repo do not share that file.
+.DS_Store
+.idea/
+
+# JetBrains Junie writes local plans here. Junie is not one of this project's
+# configured agents in Automatic, so the managed block does not cover it.
+.junie/
+
+# BEGIN Automatic-managed
+# Files generated and managed by Automatic. Regenerated on sync; do not edit inside this block.
+/.agents/
+/.automatic/
+/.claude/
+/.cursor/
+/.mcp.json
+/AGENTS.md
+/CLAUDE.md
+# END Automatic-managed
