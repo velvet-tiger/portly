@@ -1,0 +1,19 @@
+# Temporary diagnostic. Proves whether GitHub dispatches ANY workflow run for
+# this repository. Delete once the release pipeline is confirmed working.
+name: ping
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Say something
+        run: echo "actions dispatches runs for this repository"
