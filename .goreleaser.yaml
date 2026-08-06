@@ -43,6 +43,7 @@ archives:
     name_template: "portly_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - README.md
+      - LICENSE
 
 checksum:
   name_template: checksums.txt
