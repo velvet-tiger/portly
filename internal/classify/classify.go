@@ -122,10 +122,19 @@ func (c *Classifier) Classify(listener scan.Listener) Result {
 
 	// An editor plugin's bundled runtime is installed software, even though its
 	// executable is an ordinary node or python binary in an ordinary directory.
+	// An interpreter from a version manager such as nvm is the exception: it is
+	// the user's own toolchain, so the script it runs decides, not its path.
 	if IsInstalledSoftware(process.Executable, c.homeDir) {
-		result.Relevance = RelevanceApplication
-		result.Reason = "runs from installed software, not a project"
-		return result
+		if !IsVersionManagedRuntime(process.Executable, c.homeDir) {
+			result.Relevance = RelevanceApplication
+			result.Reason = "runs from installed software, not a project"
+			return result
+		}
+		if script, found := executedCodePath(process.Arguments, process.WorkingDir); found && IsInstalledSoftware(script, c.homeDir) {
+			result.Relevance = RelevanceApplication
+			result.Reason = "runs a script belonging to installed software"
+			return result
+		}
 	}
 
 	if IsSystemDaemon(process.Executable) {
@@ -191,6 +200,33 @@ func (c *Classifier) withinHome(path string) bool {
 		return false
 	}
 	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+// executedCodePath locates the code an interpreter is running: the first
+// non-flag argument after argv[0], resolved against the working directory when
+// it is relative.
+//
+// The result is a best-effort locator used only for subtree membership tests.
+// A subcommand token such as "run" resolves to a path that exists nowhere,
+// which is harmless: it belongs to no installed-software subtree, so the
+// caller falls through to the weaker rules.
+func executedCodePath(arguments []string, workingDir scan.WorkingDirectory) (string, bool) {
+	if len(arguments) < 2 {
+		return "", false
+	}
+	for _, argument := range arguments[1:] {
+		if strings.HasPrefix(argument, "-") {
+			continue
+		}
+		if filepath.IsAbs(argument) {
+			return argument, true
+		}
+		if workingDir.Known {
+			return filepath.Join(workingDir.Path, argument), true
+		}
+		return "", false
+	}
+	return "", false
 }
 
 // describeContainer states which container holds a published port.

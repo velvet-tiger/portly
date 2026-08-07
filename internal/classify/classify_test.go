@@ -93,6 +93,38 @@ func TestClassify(t *testing.T) {
 			wantRelevance: RelevanceApplication,
 		},
 		{
+			name: "an nvm interpreter running a project script is a dev server",
+			listener: scan.Listener{
+				Port: 5173,
+				Process: scan.Process{
+					Name:       "node",
+					Executable: "/Users/dev/.nvm/versions/node/v24.0.0/bin/node",
+					Arguments:  []string{"node", "/Users/dev/code/shop/node_modules/.bin/vite"},
+					WorkingDir: scan.KnownDirectory("/Users/dev/code/shop"),
+					Ancestry:   []scan.Ancestor{{PID: 900, Name: "zsh"}},
+				},
+			},
+			wantRelevance: RelevanceDevServer,
+			wantProject:   "shop",
+		},
+		{
+			name: "an nvm interpreter running an installed extension's script is an application",
+			listener: scan.Listener{
+				Port: 26100,
+				Process: scan.Process{
+					Name:       "node",
+					Executable: "/Users/dev/.nvm/versions/node/v24.0.0/bin/node",
+					Arguments:  []string{"node", "/Users/dev/.vscode/extensions/tool/server.js"},
+					WorkingDir: scan.KnownDirectory("/Users/dev/code/shop"),
+					Ancestry:   []scan.Ancestor{{PID: 700, Name: "code"}},
+				},
+			},
+			wantRelevance: RelevanceApplication,
+			// The extension was spawned inside that directory, so the attribution
+			// stands. What matters is that it is not promoted to a dev server.
+			wantProject: "shop",
+		},
+		{
 			name: "a system daemon is recognised by its path",
 			listener: scan.Listener{
 				Port: 49152,
@@ -195,6 +227,7 @@ func TestIsInstalledSoftware(t *testing.T) {
 	}{
 		{"/Users/dev/Library/Application Support/x/node", true},
 		{"/Users/dev/.cursor/extensions/y/server", true},
+		{"/Users/dev/.nvm/versions/node/v24.0.0/bin/node", true},
 		{"/Users/dev/code/shop/server.js", false},
 		{"/opt/homebrew/bin/node", false},
 		{"/Users/other/Library/x", false},
@@ -203,6 +236,26 @@ func TestIsInstalledSoftware(t *testing.T) {
 	for _, testCase := range cases {
 		if got := IsInstalledSoftware(testCase.path, testHome); got != testCase.want {
 			t.Errorf("IsInstalledSoftware(%q) = %v, want %v", testCase.path, got, testCase.want)
+		}
+	}
+}
+
+func TestIsVersionManagedRuntime(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{"/Users/dev/.nvm/versions/node/v24.0.0/bin/node", true},
+		{"/Users/dev/.cargo/bin/trunk", true},
+		{"/Users/dev/.local/share/mise/installs/node/24/bin/node", true},
+		{"/Users/dev/.local/share/other/tool", false},
+		{"/Users/dev/Library/Application Support/x/node", false},
+		{"/opt/homebrew/bin/node", false},
+	}
+
+	for _, testCase := range cases {
+		if got := IsVersionManagedRuntime(testCase.path, testHome); got != testCase.want {
+			t.Errorf("IsVersionManagedRuntime(%q) = %v, want %v", testCase.path, got, testCase.want)
 		}
 	}
 }

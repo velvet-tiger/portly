@@ -62,11 +62,21 @@ var installedSoftwareHomeSubtrees = []string{
 	"applications",
 	".vscode",
 	".cursor",
+	".local/share",
+	".cache",
+}
+
+// runtimeManagerHomeSubtrees hold interpreters installed by a version manager
+// such as nvm or rustup. They count as installed software for project
+// attribution, but an interpreter living here is the user's own toolchain:
+// nearly every node process on an nvm machine runs from ~/.nvm, so the
+// executable path says nothing about what it runs. Relevance is judged by the
+// script instead.
+var runtimeManagerHomeSubtrees = []string{
 	".nvm",
 	".cargo",
 	".rustup",
-	".local/share",
-	".cache",
+	".local/share/mise",
 }
 
 // systemPathPrefixes identify operating system daemons.
@@ -133,11 +143,25 @@ func IsDesktopApplication(executable string) bool {
 }
 
 // IsInstalledSoftware reports whether a path sits in a home directory subtree
-// that holds installed software.
+// that holds installed software, including version-managed runtime trees.
 //
 // homeDir may be empty, in which case nothing matches, because without a home
 // directory there is no way to tell an install path from a project path.
 func IsInstalledSoftware(path, homeDir string) bool {
+	return underHomeSubtree(path, homeDir, installedSoftwareHomeSubtrees) ||
+		underHomeSubtree(path, homeDir, runtimeManagerHomeSubtrees)
+}
+
+// IsVersionManagedRuntime reports whether a path sits in a version manager's
+// tree, such as nvm's. An executable there is the user's own toolchain rather
+// than part of an application, so its location must not decide relevance.
+func IsVersionManagedRuntime(path, homeDir string) bool {
+	return underHomeSubtree(path, homeDir, runtimeManagerHomeSubtrees)
+}
+
+// underHomeSubtree reports whether path sits under any of the named subtrees
+// of homeDir.
+func underHomeSubtree(path, homeDir string, subtrees []string) bool {
 	if path == "" || homeDir == "" {
 		return false
 	}
@@ -148,7 +172,7 @@ func IsInstalledSoftware(path, homeDir string) bool {
 	}
 
 	lowered := strings.ToLower(filepath.ToSlash(relative))
-	for _, subtree := range installedSoftwareHomeSubtrees {
+	for _, subtree := range subtrees {
 		if lowered == subtree || strings.HasPrefix(lowered, subtree+"/") {
 			return true
 		}

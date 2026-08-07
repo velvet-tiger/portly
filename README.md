@@ -65,7 +65,7 @@ portly reads the socket table, then asks four questions about the process behind
 1. A container publishes this host port. `docker ps` supplies the name and compose project.
 2. A coding agent is in the parent chain. This is the strongest signal and it beats everything below it.
 3. The process is a desktop application, meaning its executable lives in a `.app` bundle.
-4. The process is installed software under `~/Library`, `~/.cursor`, `~/.nvm` and similar.
+4. The process is installed software under `~/Library`, `~/.cursor` and similar. An interpreter from a version manager such as nvm is exempt: it is judged by the script it runs, not by where it is installed.
 5. The process runs from a system directory such as `/usr/libexec`.
 6. A dev runtime started from an editor, terminal or shell.
 7. A dev runtime whose working directory sits inside a project.
