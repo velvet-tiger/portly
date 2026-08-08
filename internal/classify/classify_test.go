@@ -137,6 +137,18 @@ func TestClassify(t *testing.T) {
 			wantRelevance: RelevanceSystem,
 		},
 		{
+			name: "a systemd daemon is recognised by its path",
+			listener: scan.Listener{
+				Port: 53,
+				Process: scan.Process{
+					Name:       "systemd-resolved",
+					Executable: "/usr/lib/systemd/systemd-resolved",
+					WorkingDir: scan.KnownDirectory("/"),
+				},
+			},
+			wantRelevance: RelevanceSystem,
+		},
+		{
 			name: "a dev runtime inside a project is a dev server without any agent",
 			listener: scan.Listener{
 				Port: 3000,

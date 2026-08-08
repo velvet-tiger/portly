@@ -85,6 +85,7 @@ var systemPathPrefixes = []string{
 	"/usr/libexec/",
 	"/usr/sbin/",
 	"/sbin/",
+	"/usr/lib/systemd/",
 	"/library/apple/",
 	"/library/privilegedhelpertools/",
 }

@@ -6,13 +6,15 @@ Most listening ports on a developer machine are not dev servers. Editors, chat a
 
 ## Install
 
-Homebrew, which needs nothing else installed:
+On macOS, Homebrew needs nothing else installed:
 
 ```bash
 brew install velvet-tiger/tap/portly
 ```
 
-Or with Go, which puts the binary in `$(go env GOPATH)/bin`:
+On Linux, download a binary from the [releases page](https://github.com/velvet-tiger/portly/releases), or use Go.
+
+With Go, which puts the binary in `$(go env GOPATH)/bin`:
 
 ```bash
 go install github.com/velvet-tiger/portly@latest
@@ -79,9 +81,9 @@ Projects are found by walking up from the working directory looking for a marker
 
 ## What portly does not do
 
-**It only runs on macOS.** On any other platform portly exits with an error naming the platform rather than reporting zero ports.
+**It runs on macOS and Linux only.** On any other platform portly exits with an error naming the platform rather than reporting zero ports.
 
-**It only sees your own processes.** Without `sudo`, the kernel reports only sockets owned by the calling user, so a port held by another user or by root does not appear. Run it under `sudo` if you suspect something is missing.
+**It only sees your own processes.** Without `sudo`, a port held by another user or by root does not appear. Run it under `sudo` if you suspect something is missing.
 
 **Agent attribution breaks when a server is orphaned.** Rule 2 walks the parent chain. If an agent backgrounds a server and the shell then exits, the server is reparented to `launchd` and the chain to the agent is gone. Such a server is usually still found by its working directory under rule 7, but the `WHY` column will name the project rather than the agent.
 
@@ -104,9 +106,9 @@ Pushing a tag builds and publishes. Nothing releases on an ordinary push.
 git tag v0.1.0 && git push origin v0.1.0
 ```
 
-`.github/workflows/release.yml` runs GoReleaser on a macOS runner. macOS matters: the release runs the test suite first, and on Linux the build-tagged stub would compile instead of the Darwin socket reader, so the suite would not test what ships.
+`.github/workflows/release.yml` runs GoReleaser on a macOS runner. The runner matters: the release runs the test suite first, and only a macOS runner exercises the Darwin side of the socket reader.
 
-The build matrix is `darwin/arm64` and `darwin/amd64` only. portly compiles for Linux and Windows, but those binaries exit with an error because only the Darwin reader exists. Shipping them would hand people a download that fails on first run. When a Linux reader lands, add it to `.goreleaser.yaml` in the same change.
+The build matrix is darwin and linux, each for arm64 and amd64. portly compiles for Windows, but that binary exits with an error because no Windows reader exists, so it is not shipped.
 
 To verify a release without publishing:
 

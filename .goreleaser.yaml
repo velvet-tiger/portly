@@ -1,10 +1,8 @@
 # Release configuration for portly.
 #
-# The build matrix is macOS only, deliberately. portly compiles for Linux and
-# Windows, but those binaries exit with "portly has no socket reader for <os>"
-# because only the Darwin socket reader is implemented. Publishing them would
-# hand people a download that fails on first run. When a Linux reader lands, add
-# linux here and to the cask's dependency line in the same change.
+# The build matrix is macOS and Linux. portly compiles for Windows too, but
+# that binary exits with "portly has no socket reader for windows" because no
+# Windows reader is implemented, so it is not published.
 version: 2
 
 project_name: portly
@@ -22,6 +20,7 @@ builds:
       - CGO_ENABLED=0
     goos:
       - darwin
+      - linux
     goarch:
       - amd64
       - arm64

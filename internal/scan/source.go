@@ -4,8 +4,9 @@ import "context"
 
 // SocketTable reads listening sockets from the operating system.
 //
-// Implementations are platform specific. Only Darwin is implemented; see
-// socket_darwin.go and the build-tag fallback in socket_unsupported.go.
+// Implementations are platform specific. Darwin and Linux share the gopsutil
+// reader in socket_gopsutil.go; other platforms get the failing fallback in
+// socket_unsupported.go.
 type SocketTable interface {
 	// Listening returns every socket in the LISTEN state. Sockets the caller
 	// lacks permission to see are omitted by the OS rather than reported as an
