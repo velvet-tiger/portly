@@ -1,9 +1,9 @@
-// Command portly reports the development servers running on this machine.
+// Command portly reports the dev servers running on this machine.
 //
-// A developer machine holds far more listening ports than servers. portly reads
-// the socket table, works out what is behind each port, and by default shows
-// only what looks like a dev server. It never hides rows silently: every run
-// reports how many were filtered and why.
+// Most listening ports on a developer machine are not dev servers. portly
+// reads the socket table, works out what is behind each port, and by default
+// shows only the dev servers. It never hides rows silently: every run reports
+// how many were filtered and why.
 package main
 
 import (
@@ -85,20 +85,20 @@ func parseOptions(arguments []string) (options, error) {
 
 	flags := flag.NewFlagSet("portly", flag.ContinueOnError)
 	flags.BoolVar(&settings.all, "all", false,
-		"show every listening port, including desktop applications and system daemons")
+		"show every listening port, including apps and system daemons")
 	flags.BoolVar(&settings.asJSON, "json", false,
-		"emit JSON instead of a table")
+		"print JSON instead of a table")
 	flags.BoolVar(&settings.withProbe, "probe", false,
 		"send an HTTP GET to each port to see what it serves")
 	flags.DurationVar(&settings.probeTimeout, "probe-timeout", 400*time.Millisecond,
 		"how long each probe waits before giving up")
 	flags.BoolVar(&settings.noColour, "no-color", false,
-		"disable colour output")
+		"turn colour off")
 	flags.BoolVar(&settings.showVersion, "version", false,
 		"print the version and exit")
 
 	flags.Usage = func() {
-		fmt.Fprint(flags.Output(), "portly scans this machine for development servers.\n\nUsage:\n  portly [flags]\n\nFlags:\n")
+		fmt.Fprint(flags.Output(), "portly finds the dev servers running on this machine.\n\nUsage:\n  portly [flags]\n\nFlags:\n")
 		flags.PrintDefaults()
 	}
 
@@ -118,7 +118,7 @@ func run(ctx context.Context, settings options, out *os.File) error {
 		// Project attribution is bounded by the home directory. Without it,
 		// portly still reports ports; it stops naming projects. Say so rather
 		// than pretending the results are complete.
-		fmt.Fprintf(os.Stderr, "portly: cannot determine the home directory, project names are unavailable: %v\n", err)
+		fmt.Fprintf(os.Stderr, "portly: no home directory found, so the PROJECT column will be empty: %v\n", err)
 		home = ""
 	}
 

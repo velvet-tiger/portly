@@ -81,7 +81,7 @@ func NewTable(palette Palette, now time.Time, probed bool) *Table {
 // including when it is zero, so the filter never removes rows silently.
 func (t *Table) Write(out io.Writer, rows []Row, hidden map[classify.Relevance]int) error {
 	if len(rows) == 0 {
-		if _, err := fmt.Fprintln(out, t.palette.Muted.Render("No listening ports matched.")); err != nil {
+		if _, err := fmt.Fprintln(out, t.palette.Muted.Render("Nothing to show.")); err != nil {
 			return fmt.Errorf("writing the empty result: %w", err)
 		}
 		return t.writeSummary(out, 0, hidden)

@@ -215,7 +215,7 @@ func TestClassifyReportsADeniedWorkingDirectory(t *testing.T) {
 		Process: scan.Process{Name: "x", Executable: "/opt/x", WorkingDir: scan.UnknownDirectory()},
 	})
 
-	if result.Reason != "the OS would not report a working directory" {
+	if result.Reason != "the OS refused to report its working directory" {
 		t.Errorf("Reason = %q, want the denied-directory explanation", result.Reason)
 	}
 }

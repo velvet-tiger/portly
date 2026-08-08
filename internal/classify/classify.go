@@ -1,9 +1,7 @@
-// Package classify decides what a listening port actually is.
+// Package classify decides what a listening port is.
 //
-// A developer machine holds far more listening ports than dev servers. The
-// sample this package was designed against had 52 listeners, of which roughly
-// ten were servers and the rest were editors, chat applications and OS daemons.
-// Separating the two is the work; reading the socket table is the easy part.
+// Most listening ports on a developer machine belong to editors, chat apps and
+// OS daemons, not dev servers. This package tells the two groups apart.
 package classify
 
 import (
@@ -116,7 +114,7 @@ func (c *Classifier) Classify(listener scan.Listener) Result {
 
 	if IsDesktopApplication(process.Executable) {
 		result.Relevance = RelevanceApplication
-		result.Reason = fmt.Sprintf("%s is a desktop application", applicationName(process.Executable, process.Name))
+		result.Reason = fmt.Sprintf("%s is a desktop app", applicationName(process.Executable, process.Name))
 		return result
 	}
 
@@ -132,7 +130,7 @@ func (c *Classifier) Classify(listener scan.Listener) Result {
 		}
 		if script, found := executedCodePath(process.Arguments, process.WorkingDir); found && IsInstalledSoftware(script, c.homeDir) {
 			result.Relevance = RelevanceApplication
-			result.Reason = "runs a script belonging to installed software"
+			result.Reason = "runs a script inside installed software"
 			return result
 		}
 	}
@@ -163,7 +161,7 @@ func (c *Classifier) Classify(listener scan.Listener) Result {
 	}
 
 	if !process.WorkingDir.Known {
-		result.Reason = "the OS would not report a working directory"
+		result.Reason = "the OS refused to report its working directory"
 	}
 	return result
 }
