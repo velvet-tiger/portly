@@ -6,13 +6,13 @@ Most listening ports on a developer machine are not dev servers. Editors, chat a
 
 ## Install
 
-On macOS, Homebrew needs nothing else installed:
+Homebrew, on macOS or Linux, needs nothing else installed:
 
 ```bash
 brew install velvet-tiger/tap/portly
 ```
 
-On Linux, download a binary from the [releases page](https://github.com/velvet-tiger/portly/releases), or use Go.
+Homebrew on Linux supports x86_64 only. On an ARM Linux machine, download a binary from the [releases page](https://github.com/velvet-tiger/portly/releases), or use Go.
 
 With Go, which puts the binary in `$(go env GOPATH)/bin`:
 
