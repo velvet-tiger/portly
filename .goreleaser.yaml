@@ -82,8 +82,11 @@ homebrew_casks:
         # A binary downloaded by Homebrew carries no quarantine attribute, but
         # one fetched through a browser does, and Gatekeeper then refuses to run
         # it. Clearing it here keeps both routes working without code signing.
+        # The OS.mac? guard must come first: xattr does not exist on Linux, and
+        # system_command raises on a missing binary rather than returning a
+        # non-zero exit status, which fails the whole cask install.
         install: |
-          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+          if OS.mac? && system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
             system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/portly"]
           end
 
