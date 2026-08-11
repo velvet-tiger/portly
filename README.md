@@ -60,6 +60,22 @@ The last line is always printed. portly never drops rows without saying how many
 | `--no-color` | Disable colour. `NO_COLOR` and a non-terminal stdout also disable it |
 | `--version` | Print the version and exit |
 
+## Kill a server
+
+```bash
+portly kill 3000
+```
+
+This finds the process listening on port 3000 and sends it SIGTERM. Use `--force` to send SIGKILL instead. Flags come before the port:
+
+```bash
+portly kill --force 3000
+```
+
+A worker pool, such as a php-fpm master and its workers sharing one port, is killed together.
+
+If the port is published by a Docker container, portly refuses to signal it. The process behind such a port is Docker's own backend, shared by every container, so signalling it would stop far more than the one port asked for. portly prints the `docker stop` command to run instead.
+
 ## How a port gets classified
 
 portly reads the socket table, then looks at the process behind each port: its command line, its working directory, what launched it, and whether a container publishes the port. Rules are applied in confidence order and the first match wins. The `WHY` column names the rule that fired. A wrong result points you at the rule to fix.

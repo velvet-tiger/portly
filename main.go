@@ -4,6 +4,8 @@
 // reads the socket table, works out what is behind each port, and by default
 // shows only the dev servers. It never hides rows silently: every run reports
 // how many were filtered and why.
+//
+// `portly kill <port>` stops the process listening on a given port.
 package main
 
 import (
@@ -11,15 +13,19 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/velvet-tiger/portly/internal/classify"
 	"github.com/velvet-tiger/portly/internal/docker"
+	"github.com/velvet-tiger/portly/internal/kill"
 	"github.com/velvet-tiger/portly/internal/probe"
 	"github.com/velvet-tiger/portly/internal/release"
 	"github.com/velvet-tiger/portly/internal/render"
@@ -51,8 +57,28 @@ type options struct {
 	showVersion  bool
 }
 
+// killOptions are the command line settings for `portly kill`.
+type killOptions struct {
+	// port is uint32 to match scan.Listener.Port, though parseKillOptions
+	// restricts it to the valid 1-65535 range.
+	port  uint32
+	force bool
+}
+
 func main() {
-	settings, err := parseOptions(os.Args[1:])
+	arguments := os.Args[1:]
+
+	if len(arguments) > 0 && arguments[0] == "kill" {
+		mainKill(arguments[1:])
+		return
+	}
+	mainScan(arguments)
+}
+
+// mainScan runs the default command: scan every listening port and report
+// the dev servers among them.
+func mainScan(arguments []string) {
+	settings, err := parseOptions(arguments)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			os.Exit(0)
@@ -74,6 +100,30 @@ func main() {
 	defer cancel()
 
 	if err := run(ctx, settings, os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "portly: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// mainKill runs `portly kill <port>`.
+func mainKill(arguments []string) {
+	settings, err := parseKillOptions(arguments)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			os.Exit(0)
+		}
+		fmt.Fprintf(os.Stderr, "portly: %v\n", err)
+		os.Exit(2)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	ctx, cancel := context.WithTimeout(ctx, scanTimeout)
+	defer cancel()
+
+	scanner := scan.NewScanner(scan.NewSocketTable(), scan.NewProcessTable(), docker.NewIndex())
+	if err := runKill(ctx, settings, scanner, kill.OSSignaller{}, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "portly: %v\n", err)
 		os.Exit(1)
 	}
@@ -108,6 +158,40 @@ func parseOptions(arguments []string) (options, error) {
 	if settings.probeTimeout <= 0 {
 		return options{}, fmt.Errorf("--probe-timeout must be positive, got %s", settings.probeTimeout)
 	}
+	return settings, nil
+}
+
+// parseKillOptions reads the command line for `portly kill`.
+func parseKillOptions(arguments []string) (killOptions, error) {
+	var settings killOptions
+
+	flags := flag.NewFlagSet("portly kill", flag.ContinueOnError)
+	flags.BoolVar(&settings.force, "force", false,
+		"send SIGKILL instead of SIGTERM")
+
+	flags.Usage = func() {
+		fmt.Fprint(flags.Output(), "portly kill stops the process listening on a port.\n\nUsage:\n  portly kill [flags] <port>\n\nFlags:\n")
+		flags.PrintDefaults()
+	}
+
+	if err := flags.Parse(arguments); err != nil {
+		return killOptions{}, err
+	}
+
+	remaining := flags.Args()
+	if len(remaining) != 1 {
+		return killOptions{}, fmt.Errorf("portly kill needs exactly one port, got %d", len(remaining))
+	}
+
+	port, err := strconv.ParseUint(remaining[0], 10, 16)
+	if err != nil {
+		return killOptions{}, fmt.Errorf("%q is not a valid port: %w", remaining[0], err)
+	}
+	if port == 0 {
+		return killOptions{}, fmt.Errorf("%q is not a valid port: ports run from 1 to 65535", remaining[0])
+	}
+
+	settings.port = uint32(port)
 	return settings, nil
 }
 
@@ -185,6 +269,75 @@ func attachProbes(ctx context.Context, rows []render.Row, timeout time.Duration)
 			rows[i].Probe = &copied
 		}
 	}
+}
+
+// runKill scans for listeners on settings.port and signals what it finds.
+func runKill(ctx context.Context, settings killOptions, scanner *scan.Scanner, signaller kill.Signaller, out io.Writer) error {
+	listeners, err := scanner.Scan(ctx)
+	if err != nil {
+		return err
+	}
+	return killPort(settings, listeners, signaller, out)
+}
+
+// killPort signals every process listening on settings.port and reports what
+// happened.
+//
+// It takes an already-scanned listener list rather than a scanner, so the
+// targeting and signalling logic can be tested against a fabricated list, with
+// no real scan or process involved.
+func killPort(settings killOptions, listeners []scan.Listener, signaller kill.Signaller, out io.Writer) error {
+	targets := selectKillTargets(listeners, settings.port)
+	if len(targets) == 0 {
+		return fmt.Errorf("no process is listening on port %d", settings.port)
+	}
+
+	killSignal := syscall.SIGTERM
+	if settings.force {
+		killSignal = syscall.SIGKILL
+	}
+
+	killed := 0
+	for _, listener := range targets {
+		if listener.Container != nil {
+			// The process behind a published container port is Docker's own
+			// backend, shared across every container. Signalling it would stop
+			// far more than the one port asked for.
+			fmt.Fprintf(out, "port %d is published by container %s. Stop it with: docker stop %s\n",
+				settings.port, listener.Container.Name, listener.Container.Name)
+			continue
+		}
+
+		pids := append([]int32{listener.Process.PID}, listener.SiblingPIDs...)
+		for _, pid := range pids {
+			if err := signaller.Signal(pid, killSignal); err != nil {
+				fmt.Fprintf(out, "could not signal pid %d: %v\n", pid, err)
+				continue
+			}
+			fmt.Fprintf(out, "killed %s (pid %d) on port %d\n", listener.Process.Name, pid, settings.port)
+			killed++
+		}
+	}
+
+	if killed == 0 {
+		return fmt.Errorf("nothing on port %d could be killed", settings.port)
+	}
+	return nil
+}
+
+// selectKillTargets returns every listener bound to port.
+//
+// More than one is unusual but possible: SO_REUSEPORT lets unrelated processes
+// share a port, and portly only merges such listeners when they share an
+// executable name (see collapseWorkerPools in internal/scan).
+func selectKillTargets(listeners []scan.Listener, port uint32) []scan.Listener {
+	var targets []scan.Listener
+	for _, listener := range listeners {
+		if listener.Port == port {
+			targets = append(targets, listener)
+		}
+	}
+	return targets
 }
 
 // useColour reports whether the output stream should carry colour.
