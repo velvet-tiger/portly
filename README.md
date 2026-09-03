@@ -49,6 +49,16 @@ Output:
 
 The last line is always printed. portly never drops rows without saying how many and why.
 
+## Show a process directory
+
+When a project name is too generic to identify the server, print the process's
+current working directory using its PID from the table:
+
+```bash
+portly dir 32219
+# /Users/me/code/web
+```
+
 ## Flags
 
 | Flag | Effect |

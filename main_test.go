@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"flag"
 	"strings"
@@ -10,6 +11,93 @@ import (
 
 	"github.com/velvet-tiger/portly/internal/scan"
 )
+
+type fixedProcessTable struct {
+	process scan.Process
+	err     error
+}
+
+func (f fixedProcessTable) Describe(context.Context, int32) (scan.Process, error) {
+	return f.process, f.err
+}
+
+func TestParseDirectoryOptionsReadsThePID(t *testing.T) {
+	settings, err := parseDirectoryOptions([]string{"32219"})
+	if err != nil {
+		t.Fatalf("parseDirectoryOptions() returned %v", err)
+	}
+	if settings.pid != 32219 {
+		t.Errorf("pid = %d, want 32219", settings.pid)
+	}
+}
+
+func TestParseDirectoryOptionsRejectsMissingPID(t *testing.T) {
+	if _, err := parseDirectoryOptions(nil); err == nil {
+		t.Fatal("parseDirectoryOptions(nil) returned nil error, want one naming the missing PID")
+	}
+}
+
+func TestParseDirectoryOptionsRejectsInvalidPID(t *testing.T) {
+	if _, err := parseDirectoryOptions([]string{"not-a-pid"}); err == nil {
+		t.Fatal("parseDirectoryOptions() with a non-numeric PID returned nil error, want one")
+	}
+}
+
+func TestParseDirectoryOptionsRejectsNonPositivePID(t *testing.T) {
+	for _, pid := range []string{"0", "-1"} {
+		if _, err := parseDirectoryOptions([]string{pid}); err == nil {
+			t.Errorf("parseDirectoryOptions(%q) returned nil error, want one", pid)
+		}
+	}
+}
+
+func TestParseDirectoryOptionsHelpReturnsFlagErrHelp(t *testing.T) {
+	_, err := parseDirectoryOptions([]string{"--help"})
+	if !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("parseDirectoryOptions([--help]) returned %v, want flag.ErrHelp", err)
+	}
+}
+
+func TestRunDirectoryWritesTheWorkingDirectory(t *testing.T) {
+	var out bytes.Buffer
+	processes := fixedProcessTable{process: scan.Process{
+		PID:        32219,
+		WorkingDir: scan.KnownDirectory("/Users/dev/code/web"),
+	}}
+
+	err := runDirectory(context.Background(), directoryOptions{pid: 32219}, processes, &out)
+	if err != nil {
+		t.Fatalf("runDirectory() returned %v", err)
+	}
+	if got, want := out.String(), "/Users/dev/code/web\n"; got != want {
+		t.Errorf("output = %q, want %q", got, want)
+	}
+}
+
+func TestRunDirectoryReportsAnUnavailableWorkingDirectory(t *testing.T) {
+	processes := fixedProcessTable{process: scan.Process{
+		PID:        32219,
+		WorkingDir: scan.UnknownDirectory(),
+	}}
+
+	err := runDirectory(context.Background(), directoryOptions{pid: 32219}, processes, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("runDirectory() returned nil error, want unavailable-directory error")
+	}
+	if !strings.Contains(err.Error(), "working directory for process 32219 is unavailable") {
+		t.Errorf("error = %q, want unavailable-directory message", err)
+	}
+}
+
+func TestRunDirectoryReturnsAProcessLookupError(t *testing.T) {
+	wantErr := errors.New("no such process")
+	processes := fixedProcessTable{err: wantErr}
+
+	err := runDirectory(context.Background(), directoryOptions{pid: 32219}, processes, &bytes.Buffer{})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("runDirectory() returned %v, want %v", err, wantErr)
+	}
+}
 
 // fakeSignal records one call made to a fakeSignaller.
 type fakeSignal struct {

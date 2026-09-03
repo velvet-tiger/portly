@@ -6,6 +6,7 @@
 // how many were filtered and why.
 //
 // `portly kill <port>` stops the process listening on a given port.
+// `portly dir <pid>` prints a process's current working directory.
 package main
 
 import (
@@ -65,12 +66,23 @@ type killOptions struct {
 	force bool
 }
 
+// directoryOptions are the command line settings for `portly dir`.
+type directoryOptions struct {
+	pid int32
+}
+
 func main() {
 	arguments := os.Args[1:]
 
-	if len(arguments) > 0 && arguments[0] == "kill" {
-		mainKill(arguments[1:])
-		return
+	if len(arguments) > 0 {
+		switch arguments[0] {
+		case "dir":
+			mainDirectory(arguments[1:])
+			return
+		case "kill":
+			mainKill(arguments[1:])
+			return
+		}
 	}
 	mainScan(arguments)
 }
@@ -124,6 +136,29 @@ func mainKill(arguments []string) {
 
 	scanner := scan.NewScanner(scan.NewSocketTable(), scan.NewProcessTable(), docker.NewIndex())
 	if err := runKill(ctx, settings, scanner, kill.OSSignaller{}, os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "portly: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// mainDirectory runs `portly dir <pid>`.
+func mainDirectory(arguments []string) {
+	settings, err := parseDirectoryOptions(arguments)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			os.Exit(0)
+		}
+		fmt.Fprintf(os.Stderr, "portly: %v\n", err)
+		os.Exit(2)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	ctx, cancel := context.WithTimeout(ctx, scanTimeout)
+	defer cancel()
+
+	if err := runDirectory(ctx, settings, scan.NewProcessTable(), os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "portly: %v\n", err)
 		os.Exit(1)
 	}
@@ -192,6 +227,36 @@ func parseKillOptions(arguments []string) (killOptions, error) {
 	}
 
 	settings.port = uint32(port)
+	return settings, nil
+}
+
+// parseDirectoryOptions reads the command line for `portly dir`.
+func parseDirectoryOptions(arguments []string) (directoryOptions, error) {
+	var settings directoryOptions
+
+	flags := flag.NewFlagSet("portly dir", flag.ContinueOnError)
+	flags.Usage = func() {
+		fmt.Fprint(flags.Output(), "portly dir prints a process's current working directory.\n\nUsage:\n  portly dir <pid>\n")
+	}
+
+	if err := flags.Parse(arguments); err != nil {
+		return directoryOptions{}, err
+	}
+
+	remaining := flags.Args()
+	if len(remaining) != 1 {
+		return directoryOptions{}, fmt.Errorf("portly dir needs exactly one process ID, got %d", len(remaining))
+	}
+
+	pid, err := strconv.ParseInt(remaining[0], 10, 32)
+	if err != nil {
+		return directoryOptions{}, fmt.Errorf("%q is not a valid process ID: %w", remaining[0], err)
+	}
+	if pid <= 0 {
+		return directoryOptions{}, fmt.Errorf("%q is not a valid process ID: process IDs must be positive", remaining[0])
+	}
+
+	settings.pid = int32(pid)
 	return settings, nil
 }
 
@@ -278,6 +343,20 @@ func runKill(ctx context.Context, settings killOptions, scanner *scan.Scanner, s
 		return err
 	}
 	return killPort(settings, listeners, signaller, out)
+}
+
+// runDirectory describes one process and writes its current working directory.
+func runDirectory(ctx context.Context, settings directoryOptions, processes scan.ProcessTable, out io.Writer) error {
+	process, err := processes.Describe(ctx, settings.pid)
+	if err != nil {
+		return err
+	}
+	if !process.WorkingDir.Known {
+		return fmt.Errorf("working directory for process %d is unavailable", settings.pid)
+	}
+
+	_, err = fmt.Fprintln(out, process.WorkingDir.Path)
+	return err
 }
 
 // killPort signals every process listening on settings.port and reports what

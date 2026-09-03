@@ -3,11 +3,12 @@ name: portly
 description: >-
   Find and manage development servers running on this machine using the `portly` CLI.
   Use when the user asks what's running on a port, wants to find a dev server, needs
-  to free up or kill a port, is debugging "port already in use" or "address already
-  in use" errors, or wants to see what an agent (Claude, Cursor, etc.) left running
-  in the background. Triggers on "what's on port", "what's running on port", "find
-  dev servers", "kill the process on port", "port already in use", "free up port",
-  "check running servers", or "portly".
+  to free up or kill a port, identify a process's working directory, is debugging
+  "port already in use" or "address already in use" errors, or wants to see what
+  an agent (Claude, Cursor, etc.) left running in the background. Triggers on
+  "what's on port", "what's running on port", "find dev servers", "kill the
+  process on port", "show process directory", "port already in use", "free up
+  port", "check running servers", or "portly".
 ---
 
 # portly — find and manage dev servers
@@ -53,6 +54,18 @@ Flags:
 | `--probe-timeout` | How long each probe waits, default `400ms` |
 | `--no-color` | Disable colour |
 | `--version` | Print the version and exit |
+
+## Showing a process directory
+
+When a project name is too generic to identify the server, use the PID from the
+listing to print its current working directory:
+
+```bash
+portly dir <pid>
+```
+
+This prints only the directory, making it useful for deciding which similarly
+named project is running.
 
 `--json` output shape (one object): `scanned_at`, `shown`, `hidden` (counts by
 category), and `listeners[]` — each with `port`, `protocol`, `addresses`,
