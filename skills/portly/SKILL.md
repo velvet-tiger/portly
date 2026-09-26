@@ -77,20 +77,27 @@ category), and `listeners[]` — each with `port`, `protocol`, `addresses`,
 ```bash
 portly kill <port>
 portly kill --force <port>   # SIGKILL instead of SIGTERM; flags come before the port
+portly kill --project <name>
+portly kill --force --project <name>
 ```
 
 Finds the process listening on that port and signals it. A worker pool (e.g.
 php-fpm master + workers sharing one port) is killed together.
 
-If the port is published by a Docker container, portly refuses to signal it —
-the process behind it is Docker's shared backend, so killing it would affect
-every container, not just this port. It prints the `docker stop <container>`
-command to run instead; run that command rather than trying to kill the PID
-yourself.
+`--project` signals every listening process whose `PROJECT` column equals the
+given name, including all members of a worker pool. A process that exposes
+multiple ports is signalled once. The name is a project directory basename, so
+it can be ambiguous; inspect the PID with `portly dir <pid>` before using it.
+
+If a matching port is published by a Docker container, portly refuses to
+signal it — the process behind it is Docker's shared backend, so killing it
+would affect every container, not just the selected project. It prints the
+`docker stop <container>` command to run instead; run that command rather than
+trying to kill the PID yourself.
 
 **Killing a process is a real, hard-to-reverse action against the user's
 running environment** — confirm the port/process with the user before running
-`portly kill`, unless they already named the specific port to kill.
+`portly kill`, unless they already named the specific port or project to kill.
 
 ## How classification works (for explaining a surprising result)
 

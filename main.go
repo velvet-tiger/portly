@@ -6,6 +6,7 @@
 // how many were filtered and why.
 //
 // `portly kill <port>` stops the process listening on a given port.
+// `portly kill --project <name>` stops every listening process in a project.
 // `portly dir <pid>` prints a process's current working directory.
 package main
 
@@ -62,8 +63,9 @@ type options struct {
 type killOptions struct {
 	// port is uint32 to match scan.Listener.Port, though parseKillOptions
 	// restricts it to the valid 1-65535 range.
-	port  uint32
-	force bool
+	port    uint32
+	project string
+	force   bool
 }
 
 // directoryOptions are the command line settings for `portly dir`.
@@ -117,7 +119,7 @@ func mainScan(arguments []string) {
 	}
 }
 
-// mainKill runs `portly kill <port>`.
+// mainKill runs `portly kill <port>` or `portly kill --project <name>`.
 func mainKill(arguments []string) {
 	settings, err := parseKillOptions(arguments)
 	if err != nil {
@@ -203,9 +205,11 @@ func parseKillOptions(arguments []string) (killOptions, error) {
 	flags := flag.NewFlagSet("portly kill", flag.ContinueOnError)
 	flags.BoolVar(&settings.force, "force", false,
 		"send SIGKILL instead of SIGTERM")
+	flags.StringVar(&settings.project, "project", "",
+		"stop every listening process in the named project")
 
 	flags.Usage = func() {
-		fmt.Fprint(flags.Output(), "portly kill stops the process listening on a port.\n\nUsage:\n  portly kill [flags] <port>\n\nFlags:\n")
+		fmt.Fprint(flags.Output(), "portly kill stops a listening process or every listening process in a project.\n\nUsage:\n  portly kill [flags] <port>\n  portly kill [flags] --project <name>\n\nFlags:\n")
 		flags.PrintDefaults()
 	}
 
@@ -214,8 +218,14 @@ func parseKillOptions(arguments []string) (killOptions, error) {
 	}
 
 	remaining := flags.Args()
+	if settings.project != "" {
+		if len(remaining) != 0 {
+			return killOptions{}, fmt.Errorf("portly kill accepts either a port or --project, not both")
+		}
+		return settings, nil
+	}
 	if len(remaining) != 1 {
-		return killOptions{}, fmt.Errorf("portly kill needs exactly one port, got %d", len(remaining))
+		return killOptions{}, fmt.Errorf("portly kill needs exactly one port or --project, got %d arguments", len(remaining))
 	}
 
 	port, err := strconv.ParseUint(remaining[0], 10, 16)
@@ -336,11 +346,19 @@ func attachProbes(ctx context.Context, rows []render.Row, timeout time.Duration)
 	}
 }
 
-// runKill scans for listeners on settings.port and signals what it finds.
+// runKill scans for listeners and signals the requested port or project.
 func runKill(ctx context.Context, settings killOptions, scanner *scan.Scanner, signaller kill.Signaller, out io.Writer) error {
 	listeners, err := scanner.Scan(ctx)
 	if err != nil {
 		return err
+	}
+	if settings.project != "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("cannot match project %q without a home directory: %w", settings.project, err)
+		}
+		classifier := classify.NewClassifier(classify.OSDirectoryReader{}, home)
+		return killProject(settings, listeners, classifier, signaller, out)
 	}
 	return killPort(settings, listeners, signaller, out)
 }
@@ -413,6 +431,70 @@ func selectKillTargets(listeners []scan.Listener, port uint32) []scan.Listener {
 	var targets []scan.Listener
 	for _, listener := range listeners {
 		if listener.Port == port {
+			targets = append(targets, listener)
+		}
+	}
+	return targets
+}
+
+// killProject signals every listening process attributed to settings.project.
+// A process can expose several ports, so PIDs are deduplicated before they are
+// signalled. Containers are reported but deliberately not signalled: their host
+// process is Docker's shared backend, not the process inside the container.
+func killProject(settings killOptions, listeners []scan.Listener, classifier *classify.Classifier, signaller kill.Signaller, out io.Writer) error {
+	targets := selectProjectKillTargets(listeners, settings.project, classifier)
+	if len(targets) == 0 {
+		return fmt.Errorf("no listening process was found in project %q", settings.project)
+	}
+
+	killSignal := syscall.SIGTERM
+	if settings.force {
+		killSignal = syscall.SIGKILL
+	}
+
+	killed := 0
+	signalled := make(map[int32]struct{})
+	for _, listener := range targets {
+		if listener.Container != nil {
+			fmt.Fprintf(out, "port %d is published by container %s. Stop it with: docker stop %s\n",
+				listener.Port, listener.Container.Name, listener.Container.Name)
+			continue
+		}
+
+		pids := append([]int32{listener.Process.PID}, listener.SiblingPIDs...)
+		for _, pid := range pids {
+			if _, alreadySignalled := signalled[pid]; alreadySignalled {
+				continue
+			}
+			signalled[pid] = struct{}{}
+			if err := signaller.Signal(pid, killSignal); err != nil {
+				fmt.Fprintf(out, "could not signal pid %d: %v\n", pid, err)
+				continue
+			}
+			fmt.Fprintf(out, "killed %s (pid %d) in project %s\n", listener.Process.Name, pid, settings.project)
+			killed++
+		}
+	}
+
+	if killed == 0 {
+		return fmt.Errorf("nothing in project %q could be killed", settings.project)
+	}
+	return nil
+}
+
+// selectProjectKillTargets returns listeners whose displayed project name
+// equals project. Native processes use classifier project attribution; Docker
+// containers use their compose project because that is what portly displays.
+func selectProjectKillTargets(listeners []scan.Listener, project string, classifier *classify.Classifier) []scan.Listener {
+	var targets []scan.Listener
+	for _, listener := range listeners {
+		if listener.Container != nil && listener.Container.ComposeProject == project {
+			targets = append(targets, listener)
+			continue
+		}
+
+		result := classifier.Classify(listener)
+		if result.Project != nil && result.Project.Name == project {
 			targets = append(targets, listener)
 		}
 	}

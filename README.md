@@ -82,9 +82,23 @@ This finds the process listening on port 3000 and sends it SIGTERM. Use `--force
 portly kill --force 3000
 ```
 
+To stop every listening process with a particular value in the `PROJECT`
+column, use `--project`:
+
+```bash
+portly kill --project mockups
+portly kill --force --project mockups
+```
+
+This includes every server and worker pool portly attributes to that project.
+One process listening on several ports is signalled only once. Project names are
+the displayed directory names, so the command targets every matching name; use
+`portly dir <pid>` first if the name is too generic to identify the intended
+codebase.
+
 A worker pool, such as a php-fpm master and its workers sharing one port, is killed together.
 
-If the port is published by a Docker container, portly refuses to signal it. The process behind such a port is Docker's own backend, shared by every container, so signalling it would stop far more than the one port asked for. portly prints the `docker stop` command to run instead.
+If a matching port is published by a Docker container, portly refuses to signal it. The process behind such a port is Docker's own backend, shared by every container, so signalling it would stop far more than the requested project. portly prints the `docker stop` command to run instead.
 
 ## How a port gets classified
 

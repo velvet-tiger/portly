@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/velvet-tiger/portly/internal/classify"
 	"github.com/velvet-tiger/portly/internal/scan"
 )
 
@@ -16,6 +17,14 @@ type fixedProcessTable struct {
 	process scan.Process
 	err     error
 }
+
+// fixedDirectoryReader answers project-marker lookups from a fabricated tree.
+// It keeps project-targeted kills independent of the real filesystem.
+type fixedDirectoryReader struct {
+	present map[string]bool
+}
+
+func (f fixedDirectoryReader) Exists(path string) bool { return f.present[path] }
 
 func (f fixedProcessTable) Describe(context.Context, int32) (scan.Process, error) {
 	return f.process, f.err
@@ -137,6 +146,25 @@ func TestParseKillOptionsReadsForce(t *testing.T) {
 	}
 	if !settings.force {
 		t.Error("force = false, want true")
+	}
+}
+
+func TestParseKillOptionsReadsProject(t *testing.T) {
+	settings, err := parseKillOptions([]string{"--force", "--project", "shop"})
+	if err != nil {
+		t.Fatalf("parseKillOptions() returned %v", err)
+	}
+	if settings.project != "shop" {
+		t.Errorf("project = %q, want shop", settings.project)
+	}
+	if !settings.force {
+		t.Error("force = false, want true")
+	}
+}
+
+func TestParseKillOptionsRejectsPortAndProjectTogether(t *testing.T) {
+	if _, err := parseKillOptions([]string{"--project", "shop", "3000"}); err == nil {
+		t.Fatal("parseKillOptions() with a port and --project returned nil error, want one")
 	}
 }
 
@@ -289,5 +317,75 @@ func TestKillPortReturnsAnErrorForAnUnusedPort(t *testing.T) {
 	err := killPort(killOptions{port: 3000}, nil, &fakeSignaller{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("killPort() with no listeners returned nil error, want one")
+	}
+}
+
+func TestSelectProjectKillTargetsMatchesNativeAndComposeProjects(t *testing.T) {
+	listeners := []scan.Listener{
+		{Port: 3000, Process: scan.Process{PID: 42, WorkingDir: scan.KnownDirectory("/Users/dev/code/shop/api")}},
+		{Port: 4000, Process: scan.Process{PID: 43, WorkingDir: scan.KnownDirectory("/Users/dev/code/other")}},
+		{Port: 5432, Process: scan.Process{PID: 44}, Container: &scan.Container{Name: "shop-db-1", ComposeProject: "shop"}},
+	}
+	classifier := classify.NewClassifier(fixedDirectoryReader{present: map[string]bool{
+		"/Users/dev/code/shop/.git":          true,
+		"/Users/dev/code/other/package.json": true,
+	}}, "/Users/dev")
+
+	targets := selectProjectKillTargets(listeners, "shop", classifier)
+	if len(targets) != 2 {
+		t.Fatalf("got %d targets, want the native and compose listeners for shop", len(targets))
+	}
+	if targets[0].Process.PID != 42 || targets[1].Process.PID != 44 {
+		t.Errorf("targets = %+v, want the shop listeners", targets)
+	}
+}
+
+func TestKillProjectSignalsEveryUniqueNativeProcess(t *testing.T) {
+	listeners := []scan.Listener{
+		{Port: 3000, Process: scan.Process{PID: 42, Name: "node", WorkingDir: scan.KnownDirectory("/Users/dev/code/shop")}},
+		{Port: 3001, Process: scan.Process{PID: 42, Name: "node", WorkingDir: scan.KnownDirectory("/Users/dev/code/shop")}},
+		{Port: 9000, Process: scan.Process{PID: 43, Name: "php-fpm", WorkingDir: scan.KnownDirectory("/Users/dev/code/shop")}, SiblingPIDs: []int32{44}},
+	}
+	classifier := classify.NewClassifier(fixedDirectoryReader{present: map[string]bool{
+		"/Users/dev/code/shop/.git": true,
+	}}, "/Users/dev")
+	signaller := &fakeSignaller{}
+	var out bytes.Buffer
+
+	err := killProject(killOptions{project: "shop"}, listeners, classifier, signaller, &out)
+	if err != nil {
+		t.Fatalf("killProject() returned %v", err)
+	}
+	if got, want := len(signaller.calls), 3; got != want {
+		t.Fatalf("got %d signal calls, want %d (one server plus a worker pool)", got, want)
+	}
+	for _, call := range signaller.calls {
+		if call.signal != syscall.SIGTERM {
+			t.Errorf("signal for pid %d = %v, want SIGTERM", call.pid, call.signal)
+		}
+	}
+	if !strings.Contains(out.String(), "killed node (pid 42) in project shop") {
+		t.Errorf("output %q does not identify the project-targeted kill", out.String())
+	}
+}
+
+func TestKillProjectReportsContainerButDoesNotSignalIt(t *testing.T) {
+	listeners := []scan.Listener{{
+		Port:      5432,
+		Process:   scan.Process{PID: 1, Name: "com.docker.backend"},
+		Container: &scan.Container{Name: "shop-db-1", ComposeProject: "shop"},
+	}}
+	signaller := &fakeSignaller{}
+	var out bytes.Buffer
+
+	err := killProject(killOptions{project: "shop"}, listeners, classify.NewClassifier(fixedDirectoryReader{}, "/Users/dev"), signaller, &out)
+	if err == nil {
+		t.Fatal("killProject() returned nil error, want one because no process was safe to signal")
+	}
+	if len(signaller.calls) != 0 {
+		t.Errorf("got %d signal calls, want none for a published container port", len(signaller.calls))
+	}
+	if !strings.Contains(out.String(), "docker stop shop-db-1") {
+		t.Errorf("output %q does not point at docker stop", out.String())
 	}
 }
