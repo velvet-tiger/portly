@@ -77,18 +77,21 @@ homebrew_casks:
       name: goreleaser
       email: noreply@github.com
     commit_msg_template: "chore(cask): portly {{ .Tag }}"
-    hooks:
-      post:
-        # A binary downloaded by Homebrew carries no quarantine attribute, but
-        # one fetched through a browser does, and Gatekeeper then refuses to run
-        # it. Clearing it here keeps both routes working without code signing.
-        # The OS.mac? guard must come first: xattr does not exist on Linux, and
-        # system_command raises on a missing binary rather than returning a
-        # non-zero exit status, which fails the whole cask install.
-        install: |
-          if OS.mac? && system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/portly"]
-          end
+    # A binary downloaded by Homebrew carries no quarantine attribute, but one
+    # fetched through a browser does, and Gatekeeper then refuses to run it.
+    # Clearing it here keeps both routes working without code signing.
+    #
+    # hooks.post.install renders Homebrew's deprecated `postflight` block, and
+    # hooks.post.install_steps only arrives in GoReleaser v2.19. Until then,
+    # custom_block emits the declarative `postflight_steps` stanza directly. The
+    # escaped template leaves a literal {{staged_path}} for Homebrew to resolve.
+    # on_macos replaces the old OS.mac? guard, since xattr is absent on Linux.
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ "{{staged_path}}" }}/portly"]
+        end
+      end
 
 release:
   github:
