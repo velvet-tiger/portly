@@ -4,8 +4,10 @@ description: >-
   Find and manage development servers running on this machine using the `portly` CLI.
   Use when the user asks what's running on a port, wants to find a dev server, needs
   to free up or kill a port, identify a process's working directory, is debugging
-  "port already in use" or "address already in use" errors, or wants to see what
-  an agent (Claude, Cursor, etc.) left running in the background. Triggers on
+  "port already in use" or "address already in use" errors, wants to see what
+  an agent (Claude, Cursor, etc.) left running in the background, or needs a
+  free port to start a server on. Use `portly register` to claim a port before
+  starting a dev server. Triggers on "pick a port", "free port", "claim a port",
   "what's on port", "what's running on port", "find dev servers", "kill the
   process on port", "show process directory", "port already in use", "free up
   port", "check running servers", or "portly".
@@ -98,6 +100,48 @@ trying to kill the PID yourself.
 **Killing a process is a real, hard-to-reverse action against the user's
 running environment** — confirm the port/process with the user before running
 `portly kill`, unless they already named the specific port or project to kill.
+
+## Claiming a port before starting a server
+
+When you start a dev server for the user, ask portly for a port first instead
+of guessing one. That stops two servers fighting over 3000.
+
+```bash
+PORT=$(portly register --name web)   # run from inside the project
+npm run dev -- --port "$PORT"
+```
+
+- stdout is only the port number. Errors go to stderr with exit code 1.
+- The same `--name` in the same project always gets the same port back, so
+  re-running is safe and the server keeps its URL across restarts.
+- Pick a name per server in the project (`web`, `api`, `worker`).
+- `portly register --name web 5174` claims an exact port. It fails if another
+  project holds or claims it.
+- Without a port, portly picks from `4000-4999`. Use `--range` for another.
+- `--project <dir>` sets the project when you are not running from inside it.
+- `--pid <pid>` ends the claim when that process exits.
+
+Release a claim when the user no longer wants that server:
+
+```bash
+portly release --name web
+portly release 4000
+```
+
+## Seeing free and used ports
+
+```bash
+portly ports                     # used ports in 4000-4999
+portly ports --range 3000-3099
+portly ports --free              # free ports, one per line
+portly ports --json
+```
+
+States: `listening` (bound, unclaimed), `registered` (claimed, not bound),
+`active` (claimed and held by its own project), `conflict` (claimed, but
+another process holds it), `unavailable` (unclaimed, nothing visible, but the
+port cannot be bound, usually another user's process). A `conflict` explains a
+"port already in use" error before it happens.
 
 ## How classification works (for explaining a surprising result)
 

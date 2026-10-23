@@ -1,6 +1,6 @@
 # Port tracking
 
-Status: accepted, not yet implemented.
+Status: implemented in `internal/registry` and `claims.go`.
 
 ## Goal
 
@@ -25,6 +25,8 @@ portly register --name web --pid 4242         # claim ends when pid 4242 exits
 - Running the command again with the same project and name returns the same port. The command is idempotent. Each app gets a stable port per project, so bookmarks, OAuth callback URLs and `.env` files stay valid.
 - On success, stdout holds only the port number, so `$(...)` works. `--json` prints the full record.
 - It exits 1 with a reason if the port is in use or claimed by another project and name.
+- An exact port already held by the same project's server is allowed, so an app can register the port it is already running on.
+- Asking for a different exact port under a name that already holds one is an error, not a move.
 - The default allocation range is `4000-4999`. It avoids 3000, 5173, 8000 and 8080, which frameworks pick by default.
 
 ### `portly release`
@@ -56,8 +58,11 @@ Each used port has one state:
 | `registered` | Claimed, nothing bound yet |
 | `active` | Claimed, and something is bound to it |
 | `conflict` | Claimed by one project, but a process outside that project holds it |
+| `unavailable` | Not claimed and no visible listener, but the test bind failed |
 
-`conflict` catches a "port already in use" error before the app starts.
+`conflict` catches a "port already in use" error before the app starts. A holder whose project is unknown counts as outside the project, so missing information never hides a conflict.
+
+`--free` prints bare port numbers, one per line, for piping. `ports` never writes the registry. It leaves stale claims out of the report and counts them in the summary.
 
 ## Deciding a port is free
 
@@ -67,13 +72,13 @@ A port is free only if all three checks pass:
 2. No listener in the socket table, from the existing `scan.Scanner`.
 3. A test bind succeeds on `127.0.0.1` and `::1`.
 
-Check 3 exists because portly cannot see sockets held by other users without `sudo`. A test bind sees everything.
+Check 3 exists because portly cannot see sockets held by other users without `sudo`. A test bind sees everything. It tries `0.0.0.0`, `::`, `127.0.0.1` and `::1`, with `SO_REUSEADDR` turned off. With reuse on, macOS lets a wildcard bind succeed beside a loopback listener. The cost is that a port with connections in `TIME_WAIT` reads as taken for a minute or so.
 
 There is still a gap between portly closing the test socket and the app binding. The claim covers that gap for apps that use portly. An app that does not use portly can still take the port.
 
 ## Claim lifetime
 
-A claim lasts until it is released or its project directory no longer exists. Stale claims for deleted directories are dropped the next time the registry is written.
+A claim lasts until it is released or its project directory no longer exists. Stale claims are dropped the next time `register` or `release` writes the registry, and each one is named on stderr.
 
 A claim is not tied to the caller's PID by default. In `PORT=$(portly register)`, portly's parent is a subshell that exits at once, so its PID says nothing about the app. `--pid <n>` ties a claim to a named process for apps that want that. Such a claim is dropped once that process has exited.
 
@@ -105,9 +110,8 @@ New package `internal/registry`, in the style of `internal/classify`:
 - `Allocate(claims, listening, checker, request) (Claim, error)` is a pure decision function. It reads and writes nothing.
 - `Statuses(claims, listeners, portRange) []PortStatus` builds the `ports` output.
 
-`main.go` gains `mainRegister`, `mainRelease` and `mainPorts`, built like `mainKill`. Each loads the registry under the lock, decides, then saves.
+`claims.go` in package `main` holds `mainRegister`, `mainRelease` and `mainPorts`, built like `mainKill`. Each loads the registry under the lock, decides, then saves. A malformed registry file is an error. It is never reset, because a reset would hand claimed ports to other apps.
 
 ## Later
 
 - Show the claim in the default table's `WHY` column, for example `registered as web in mockups`.
-- Document the commands in `README.md` and `skills/portly/SKILL.md` when they ship.

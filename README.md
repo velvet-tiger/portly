@@ -100,6 +100,61 @@ A worker pool, such as a php-fpm master and its workers sharing one port, is kil
 
 If a matching port is published by a Docker container, portly refuses to signal it. The process behind such a port is Docker's own backend, shared by every container, so signalling it would stop far more than the requested project. portly prints the `docker stop` command to run instead.
 
+## Claim a port
+
+An app can ask portly for a port before it starts. portly hands out one that nothing is listening on and no other app has claimed, then remembers the claim:
+
+```bash
+PORT=$(portly register --name web)
+```
+
+stdout holds only the port number. A claim belongs to a name inside a project. The project is found from the working directory, the same way the `PROJECT` column is filled, or set with `--project <dir>`. Registering the same name in the same project again returns the same port, so an app keeps a stable port across restarts.
+
+```bash
+portly register --name web 5174               # claim this exact port
+portly register --name api --range 8000-8099  # pick from another range
+portly register --name web --pid 4242         # the claim ends when pid 4242 exits
+portly register --name web --json             # print the whole claim
+```
+
+Without a port, portly picks the lowest free port in `4000-4999`. That range avoids the ports frameworks pick by default. A port is free when nothing claims it, no listener appears in the socket table, and a test bind succeeds. The test bind catches servers run by other users, which the socket table hides. A port with connections still closing can fail the test bind for a minute or so.
+
+An exact port already held by the same project's server is allowed. That lets an app register the port it is already running on. Asking for a different port under a name that already holds one is an error. Release the old claim first.
+
+A claim lasts until it is released or its project directory is deleted. A claim made with `--pid` also ends when that process exits. Stale claims are dropped the next time `register` or `release` runs, and each one is reported on stderr.
+
+Drop a claim by name or by port:
+
+```bash
+portly release --name web
+portly release 4000
+```
+
+`portly kill` does not release claims. Stopping a server and giving up its port are separate decisions.
+
+Claims are stored in `$XDG_STATE_HOME/portly/ports.json`, or `~/.local/state/portly/ports.json` when that variable is unset.
+
+## Show free and used ports
+
+```bash
+portly ports                          # used ports in 4000-4999
+portly ports --range 3000-3099
+portly ports --free                   # free ports, one per line
+portly ports --json
+```
+
+Each used port has a state:
+
+| State | Meaning |
+|---|---|
+| `listening` | Something is bound, with no claim |
+| `registered` | Claimed, nothing bound yet |
+| `active` | Claimed, and the claim's own project or tied process holds it |
+| `conflict` | Claimed, but a process outside that project holds it |
+| `unavailable` | Not claimed and no visible listener, but the test bind failed |
+
+A `conflict` is a "port already in use" error found before the app starts. A process whose project portly cannot work out counts as outside the project.
+
 ## How a port gets classified
 
 portly reads the socket table, then looks at the process behind each port: its command line, its working directory, what launched it, and whether a container publishes the port. Rules are applied in confidence order and the first match wins. The `WHY` column names the rule that fired. A wrong result points you at the rule to fix.

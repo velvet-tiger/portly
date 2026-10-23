@@ -8,6 +8,9 @@
 // `portly kill <port>` stops the process listening on a given port.
 // `portly kill --project <name>` stops every listening process in a project.
 // `portly dir <pid>` prints a process's current working directory.
+// `portly register --name <name>` claims a port so other apps do not take it.
+// `portly release` drops a claim.
+// `portly ports` reports which ports in a range are claimed, listening or free.
 package main
 
 import (
@@ -83,6 +86,15 @@ func main() {
 			return
 		case "kill":
 			mainKill(arguments[1:])
+			return
+		case "register":
+			mainRegister(arguments[1:])
+			return
+		case "release":
+			mainRelease(arguments[1:])
+			return
+		case "ports":
+			mainPorts(arguments[1:])
 			return
 		}
 	}
