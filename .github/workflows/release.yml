@@ -8,7 +8,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
@@ -16,6 +16,8 @@ jobs:
     # portly's scan tests exercise the Darwin socket reader. On Linux the
     # build-tagged stub compiles instead and the suite would not test what ships.
     runs-on: macos-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Check out the repository
