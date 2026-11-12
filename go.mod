@@ -1,6 +1,6 @@
 module github.com/velvet-tiger/portly
 
-go 1.26.3
+go 1.26.11
 
 require (
 	github.com/charmbracelet/lipgloss v1.1.0
